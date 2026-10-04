@@ -106,6 +106,7 @@
       - [bot.game.serverBrand](#botgameserverbrand)
       - [bot.game.minY](#botgameminy)
       - [bot.game.height](#botgameheight)
+      - [bot.abilities](#botabilities)
       - [bot.physicsEnabled](#botphysicsenabled)
       - [bot.player](#botplayer)
       - [bot.players](#botplayers)
@@ -183,6 +184,7 @@
       - ["death"](#death)
       - ["health"](#health)
       - ["breath"](#breath)
+      - ["abilities" (abilities)](#abilities-abilities)
       - ["entityAttributes" (entity)](#entityattributes-entity)
       - ["entitySwingArm" (entity)](#entityswingarm-entity)
       - ["entityHurt" (entity)](#entityhurt-entity)
@@ -906,6 +908,23 @@ minimum y of the world
 
 world height
 
+#### bot.abilities
+
+What the server last allowed the player in the abilities packet.
+
+```js
+{
+  invulnerable: false,
+  // the server has the player in flight; physics stops applying gravity
+  flying: false,
+  // the player is allowed to start flying
+  mayFly: false,
+  instantBuild: false,
+  flyingSpeed: 0.05,
+  walkingSpeed: 0.1
+}
+```
+
 #### bot.physicsEnabled
 
 Enable physics, default true.
@@ -1141,22 +1160,32 @@ Boolean, whether or not you are in bed.
 
 All scoreboards known to the bot in an object scoreboard name -> scoreboard.
 
+Reset on each login (every server switch on a proxy network); the object is kept and its entries are dropped without `scoreboardDeleted` events.
+
 #### bot.scoreboard
 
 All scoreboards known to the bot in an object scoreboard displaySlot -> scoreboard.
+
+Reset on each login; the object is kept and its slots are dropped.
 
  * `belowName` - scoreboard placed in belowName
  * `sidebar` - scoreboard placed in sidebar
  * `list` - scoreboard placed in list
  * `0-18` - slots defined in [protocol](https://minecraft.wiki/w/Protocol#Display_Scoreboard)
 
+Only slots that currently display an objective are enumerable, so `Object.values(bot.scoreboard)` never contains `undefined`. The named slots are non-enumerable aliases of `0`, `1` and `2`.
+
 #### bot.teams
 
 All teams known to the bot
 
+Reset on each login (every server switch on a proxy network); the object is kept and its entries are dropped without `teamRemoved` events.
+
 #### bot.teamMap
 
 Mapping of member to team. Uses usernames for players and UUIDs for entities.
+
+Reset on each login; the object is kept and its entries are dropped.
 
 #### bot.controlState
 
@@ -1320,6 +1349,10 @@ Fires when your hp or food change.
 #### "breath"
 
 Fires when your oxygen level change.
+
+#### "abilities" (abilities)
+
+Fires when the server sends the abilities packet, with the new [bot.abilities](#botabilities).
 
 #### "entityAttributes" (entity)
 
@@ -1524,7 +1557,7 @@ Fires when a scoreboard is added.
 
 #### "scoreboardDeleted" (scoreboard)
 
-Fires when a scoreboard is deleted.
+Fires when a scoreboard is deleted. Not fired for scoreboards dropped by a login.
 
 #### "scoreboardTitleChanged" (scoreboard)
 
@@ -1548,7 +1581,7 @@ Fires when a team is added.
 
 #### "teamRemoved" (team)
 
-Fires when a team is removed.
+Fires when a team is removed. Not fired for teams dropped by a login.
 
 #### "teamUpdated" (team)
 
@@ -1702,6 +1735,8 @@ Requests chat completion from the server.
 #### bot.chat(message)
 
 Sends a publicly broadcast chat message. Breaks up big messages into multiple chat messages as necessary.
+
+Throws if called before the `login` event, or after a disconnect that happened before it: the server only accepts chat once the client is in the play state.
 
 #### bot.whisper(username, message)
 
@@ -2215,6 +2250,31 @@ Transfer some kind of item from one range to an other. `options` is an object co
 #### bot.openBlock(block, direction?: Vec3, cursorPos?: Vec3)
 
 Open a block, for example a chest, returns a promise on the opening `Window`.
+
+After opening a chest, trapped chest, barrel, hopper, furnace, blast furnace,
+smoker, dispenser, dropper, brewing stand or shulker box, the last server-observed
+container contents are available from `bot.world.getObservedBlockInventory(block.position)`.
+This returns `null` before observation, otherwise a defensive copy with `kind`
+(block name), `slots` (item data records or `null`, excluding player slots),
+`observedAt` (local time in milliseconds), and `stale` (whether the window closed).
+Item records preserve item data, including NBT and components, but are not `Item`
+instances. Local click predictions do not change these records; only server slot
+and full-window updates do. Even an open window describes the last received data,
+not unseen server changes.
+
+These observations are held in memory separately from raw block-entity NBT.
+Each bot owns its snapshot in the shared world; closing or resetting one bot
+cannot remove another bot's snapshot. A getter without an owner returns the
+newest non-stale snapshot, or the newest stale snapshot when no live snapshot
+exists. Block changes, raw block-entity replacements, and column replacement or
+unload invalidate all owners. This bot removes only its own owner on respawn,
+login, and disconnect. After invalidation, opening the container again is
+required to establish a new observation. The world emits
+`observedBlockInventoryUpdate` for owner updates and aggregate changes. Double-chest
+windows are left unknown because a 54-slot window has no single block identity;
+neither half is inferred.
+Player, entity and personal ender chest inventories are excluded. Opening block
+and entity windows concurrently is rejected because their source is ambiguous.
 
  * `block` is the block the bot will open.
  * `direction` Optional defaults to `new Vec3(0, 1, 0)` (up). A vector off the direction the container block should be interacted with. Does nothing when a container entity is targeted.
